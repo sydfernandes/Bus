@@ -89,11 +89,16 @@ const BusStopItem = memo(({
   );
 });
 
+// Default coordinates for Madrid city center
+const DEFAULT_COORDINATES: [number, number] = [40.4168, -3.7038];
+
 export default function Home() {
   const isMounted = useRef(false);
   const fetchingRef = useRef(false);
+  const locationAttempted = useRef(false);
   
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number]>(DEFAULT_COORDINATES);
+  const [isUsingDefaultLocation, setIsUsingDefaultLocation] = useState(false);
   const [address, setAddress] = useState<string>('');
   const [busStops, setBusStops] = useState<any[]>([]);
   const [busStopsCount, setBusStopsCount] = useState<number>(0);
@@ -173,17 +178,51 @@ export default function Home() {
     }
   }, []);
 
+  const requestLocationPermission = useCallback(async () => {
+    try {
+      const result = await navigator.permissions.query({ name: 'geolocation' });
+      return result.state;
+    } catch (error) {
+      console.error('Error checking permissions:', error);
+      return 'denied';
+    }
+  }, []);
+
   const fetchUserLocation = useCallback(async () => {
     console.log('🎯 Fetching user location');
+    
     try {
+      // First check if geolocation is supported
+      if (!navigator.geolocation) {
+        throw new Error('Geolocation is not supported by your browser');
+      }
+
+      // Check permissions first
+      const permissionStatus = await requestLocationPermission();
+      console.log('📍 Location permission status:', permissionStatus);
+
+      if (permissionStatus === 'denied') {
+        throw new Error('PERMISSION_DENIED');
+      }
+
+      // If permission is granted or prompt, try to get location
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          reject,
+          {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          }
+        );
       });
 
       const { latitude, longitude } = position.coords;
       console.log('🎯 User location received:', { latitude, longitude });
       
       setUserLocation([latitude, longitude]);
+      setIsUsingDefaultLocation(false);
       
       // Fetch address and bus stops with the new coordinates
       await Promise.all([
@@ -194,25 +233,61 @@ export default function Home() {
       toast.success('Ubicación Actualizada', {
         description: 'Se han actualizado las paradas cercanas'
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error getting location:', error);
-      setIsLoading(false);
-      toast.error('Error de Ubicación', {
-        description: 'No se pudo obtener tu ubicación'
-      });
-    }
-  }, [fetchAddress, fetchBusStops]);
+      
+      // Use default location if we haven't set any location yet
+      if (!userLocation || isUsingDefaultLocation) {
+        console.log('Using default location:', DEFAULT_COORDINATES);
+        setUserLocation(DEFAULT_COORDINATES);
+        setIsUsingDefaultLocation(true);
+        
+        // Fetch data with default coordinates
+        await Promise.all([
+          fetchAddress(DEFAULT_COORDINATES[0], DEFAULT_COORDINATES[1]),
+          fetchBusStops(DEFAULT_COORDINATES[0], DEFAULT_COORDINATES[1])
+        ]);
+      }
+      
+      // Handle specific geolocation errors
+      let errorMessage = 'No se pudo obtener tu ubicación. Usando ubicación predeterminada.';
+      let actionButton = null;
 
-  useEffect(() => {
-    if (!isMounted.current) {
-      console.log('🔄 Initial location fetch');
-      isMounted.current = true;
-      fetchUserLocation();
+      if (error.message === 'PERMISSION_DENIED' || error.code === 1) {
+        errorMessage = 'Necesitamos acceso a tu ubicación para mostrar las paradas más cercanas.';
+        actionButton = (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => {
+              // This will trigger the browser's permission prompt
+              navigator.geolocation.getCurrentPosition(() => {
+                fetchUserLocation();
+              }, () => {});
+            }}
+          >
+            Permitir Acceso
+          </Button>
+        );
+      } else if (error.code === 2) {
+        errorMessage = 'No se pudo determinar tu ubicación. Verifica tu conexión GPS.';
+      } else if (error.code === 3) {
+        errorMessage = 'Se agotó el tiempo para obtener tu ubicación.';
+      }
+      
+      toast.error('Error de Ubicación', {
+        description: errorMessage,
+        action: actionButton,
+        duration: 5000
+      });
+    } finally {
+      setIsLoading(false);
     }
-  }, [fetchUserLocation]);
+  }, [fetchAddress, fetchBusStops, userLocation, isUsingDefaultLocation, requestLocationPermission]);
 
   const handleRefreshLocation = useCallback(() => {
     console.log('🔄 Refreshing location');
+    setIsLoading(true);
     fetchUserLocation();
   }, [fetchUserLocation]);
 
@@ -420,22 +495,38 @@ export default function Home() {
     isLoading
   });
 
+  // Initialize location on mount
+  useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      console.log('🔄 Initial location fetch');
+      fetchUserLocation();
+    }
+  }, [fetchUserLocation]);
+
   return (
     <main className={styles.main}>
       {userLocation ? (
-        <Map
-          center={userLocation}
-          zoom={15}
-          busStops={busStops}
-          selectedStop={selectedStop}
-          onStopSelect={handleStopSelect}
-          onMapInit={(map) => {}} // Empty function since we don't need to do anything on init
-          onLineSelect={handleLineSelect}
-          selectedLineRoute={selectedLineRoute}
-        />
+        <>
+          <Map
+            center={userLocation}
+            zoom={15}
+            busStops={busStops}
+            selectedStop={selectedStop}
+            onStopSelect={handleStopSelect}
+            onMapInit={(map) => {}} // Empty function since we don't need to do anything on init
+            onLineSelect={handleLineSelect}
+            selectedLineRoute={selectedLineRoute}
+          />
+          {isUsingDefaultLocation && (
+            <div className={styles.defaultLocationWarning}>
+              <p>Usando ubicación predeterminada en Madrid. Permite el acceso a tu ubicación para ver paradas cercanas a ti.</p>
+            </div>
+          )}
+        </>
       ) : (
         <div className={styles.loadingContainer}>
-          <p>Loading map...</p>
+          <p>Cargando mapa...</p>
         </div>
       )}
       
