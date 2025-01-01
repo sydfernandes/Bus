@@ -1,5 +1,16 @@
 import { NextResponse } from 'next/server';
 import { API_CONFIG, ENDPOINTS } from '@/config/api';
+import { getCachedData, setCachedData } from '@/lib/cache';
+
+interface BusLine {
+  id: string;
+  name: string;
+  shortName: string;
+  code: string;
+  description: string;
+  originStop: string;
+  destinationStop: string;
+}
 
 export async function GET(request: Request) {
   try {
@@ -12,6 +23,14 @@ export async function GET(request: Request) {
         { error: 'Se requiere el ID de la parada' },
         { status: 400 }
       );
+    }
+
+    // Try to get data from cache
+    const cacheKey = `bus_lines_${stopId}`;
+    const cachedData = getCachedData<BusLine[]>(cacheKey);
+    if (cachedData) {
+      console.log('🎯 Returning cached bus lines data for stop:', stopId);
+      return NextResponse.json(cachedData);
     }
 
     const url = ENDPOINTS.BUS_STOP_LINES(stopId);
@@ -49,13 +68,15 @@ export async function GET(request: Request) {
       name: line.nombreLinea || line.nombre,
       shortName: line.nombreCorto || line.codigo,
       code: line.codigo,
-      origin: line.origen || line.cabecera,
-      destination: line.destino || line.fin,
-      type: line.tipoLinea || line.tipo,
-      mode: line.modo || 'Bus'
+      description: line.descripcion,
+      originStop: line.cabeceraIda,
+      destinationStop: line.cabeceraVuelta
     }));
 
-    console.log('🚌 Mapped bus lines:', lines);
+    // Cache the mapped data
+    setCachedData(cacheKey, lines);
+    console.log('💾 Cached bus lines data for stop:', stopId);
+
     return NextResponse.json(lines);
   } catch (error) {
     console.error('❌ Error in GET /api/bus-stops/lines:', error);

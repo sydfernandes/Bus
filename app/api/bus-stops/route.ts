@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { API_CONFIG, ENDPOINTS } from '@/config/api';
 import { BusStop, CTANBusStop } from '@/types/bus';
+import { getCachedData, setCachedData } from '@/lib/cache';
 
 export async function GET(request: Request) {
   try {
@@ -13,6 +14,16 @@ export async function GET(request: Request) {
         { error: 'Latitude and longitude are required' },
         { status: 400 }
       );
+    }
+
+    // Create a cache key based on coordinates (rounded to 4 decimal places for better cache hits)
+    const cacheKey = `bus_stops_${Number(lat).toFixed(4)}_${Number(long).toFixed(4)}`;
+    
+    // Try to get data from cache
+    const cachedData = getCachedData<BusStop[]>(cacheKey);
+    if (cachedData) {
+      console.log('🎯 Returning cached bus stops data');
+      return NextResponse.json(cachedData);
     }
 
     const url = ENDPOINTS.BUS_STOPS(Number(lat), Number(long));
@@ -40,6 +51,10 @@ export async function GET(request: Request) {
       municipality: stop.municipio,
       nucleus: stop.nucleo
     })) || [];
+
+    // Cache the mapped data
+    setCachedData(cacheKey, mappedStops);
+    console.log('💾 Cached bus stops data for key:', cacheKey);
 
     return NextResponse.json(mappedStops);
   } catch (error) {
