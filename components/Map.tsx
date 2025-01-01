@@ -32,6 +32,12 @@ const selectedBusStopIcon = L.divIcon({
   iconAnchor: [10, 10],
 });
 
+const lineStopIcon = L.divIcon({
+  className: styles.lineStopMarker,
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
+});
+
 interface BusStop {
   id: number;
   name: string;
@@ -54,6 +60,7 @@ interface MapProps {
   onMapInit: (map: L.Map) => void;
   onLineSelect: (lineId: string) => void;
   selectedLineRoute: L.LatLng[] | null;
+  selectedLineStops: BusStop[];
 }
 
 // Component to handle map center updates
@@ -131,15 +138,16 @@ const BusStopMarker = memo(({
 
 BusStopMarker.displayName = 'BusStopMarker';
 
-const Map = ({ 
+const Map = memo(({ 
   center, 
   zoom = 15, 
   busStops, 
-  selectedStop, 
-  onStopSelect, 
-  onMapInit, 
+  selectedStop,
+  onStopSelect,
+  onMapInit,
   onLineSelect,
-  selectedLineRoute 
+  selectedLineRoute,
+  selectedLineStops
 }: MapProps) => {
   const mapRef = useRef<L.Map | null>(null);
   
@@ -148,26 +156,30 @@ const Map = ({
     onMapInit?.(map);
   }, [onMapInit]);
 
-  // Effect to fit bounds when route changes
+  // Update bounds when line route or stops change
   useEffect(() => {
-    if (!mapRef.current || !selectedLineRoute?.length) return;
-
-    const bounds = L.latLngBounds(selectedLineRoute);
-    mapRef.current.fitBounds(bounds, {
-      padding: [50, 50],
-      maxZoom: 15
-    });
-  }, [selectedLineRoute]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
+    if (mapRef.current && (selectedLineRoute?.length || selectedLineStops.length)) {
+      const bounds = L.latLngBounds([]);
+      
+      // Add route points to bounds
+      if (selectedLineRoute?.length) {
+        selectedLineRoute.forEach(point => bounds.extend(point));
       }
-    };
-  }, []);
+      
+      // Add line stops to bounds
+      if (selectedLineStops.length) {
+        selectedLineStops.forEach(stop => {
+          bounds.extend([stop.latitude, stop.longitude]);
+        });
+      }
+      
+      // Fit bounds with padding
+      mapRef.current.fitBounds(bounds, {
+        padding: [50, 50],
+        maxZoom: 15
+      });
+    }
+  }, [selectedLineRoute, selectedLineStops]);
 
   return (
     <div className={styles.mapContainer}>
@@ -195,19 +207,36 @@ const Map = ({
           <Polyline
             positions={selectedLineRoute}
             pathOptions={{
-              color: '#3182ce',
-              weight: 4,
-              opacity: 0.8,
-              smoothFactor: 1
+              color: '#2563eb',
+              weight: 5,
+              opacity: 0.9,
+              smoothFactor: 1,
+              lineCap: 'round',
+              lineJoin: 'round'
             }}
           />
         )}
+        {selectedLineStops.map((stop, index) => (
+          <Marker
+            key={`line-${stop.id}`}
+            position={[stop.latitude, stop.longitude]}
+            icon={lineStopIcon}
+          >
+            <Popup>
+              <div className={styles.popup}>
+                <strong>Parada {index + 1}</strong>
+                <h3>{stop.name}</h3>
+                <p>{stop.municipality}</p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
         <Marker position={center} icon={userIcon}>
           <Popup>Tu ubicación</Popup>
         </Marker>
       </MapContainer>
     </div>
   );
-};
+});
 
 export default Map;

@@ -111,6 +111,8 @@ export default function Home() {
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [isLoadingLineDetails, setIsLoadingLineDetails] = useState(false);
   const [selectedLineRoute, setSelectedLineRoute] = useState<[number, number][] | null>(null);
+  const [selectedLineStops, setSelectedLineStops] = useState<any[]>([]);
+  const [isLoadingLineStops, setIsLoadingLineStops] = useState(false);
 
   const fetchAddress = useCallback(async (lat: number, lon: number) => {
     console.log('📍 Fetching address for coordinates:', { lat, lon });
@@ -396,60 +398,7 @@ export default function Home() {
     }
   }, [lineDetailsCache]);
 
-  const handleLineSelect = useCallback(async (lineId: string) => {
-    try {
-      setIsLoadingLineDetails(true);
-      
-      // Check cache first
-      if (lineDetailsCache[lineId]) {
-        console.log('🎯 Using cached line details for:', lineId);
-        const data = lineDetailsCache[lineId];
-        const route = parseRoutePoints(data.polilineaIda || data.polilinea);
-        console.log('🚌 Using cached route points:', route);
-        setSelectedLineRoute(route);
-        return;
-      }
-
-      const url = `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/lineas/${lineId}?lang=${API_CONFIG.CTAN.Lang}`;
-      console.log('🚌 Fetching line details:', url);
-
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Error fetching line details: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('🚌 Line details:', data);
-
-      // Parse route points from either polilineaIda or polilinea
-      const route = parseRoutePoints(data.polilineaIda || data.polilinea);
-      console.log('🚌 Transformed route points:', route);
-
-      if (!route || route.length === 0) {
-        throw new Error('No valid route points found');
-      }
-
-      // Cache the result
-      setLineDetailsCache(prev => ({
-        ...prev,
-        [lineId]: data
-      }));
-
-      // Set the route
-      setSelectedLineRoute(route);
-    } catch (error) {
-      console.error('❌ Error:', error);
-      toast.error('Error', {
-        description: 'No se pudieron obtener los detalles de la línea'
-      });
-      setSelectedLineRoute(null);
-    } finally {
-      setIsLoadingLineDetails(false);
-    }
-  }, [lineDetailsCache]);
-
-  // Helper function to parse route points from API response
-  const parseRoutePoints = (points: string[]): [number, number][] => {
+  const parseRoutePoints = useCallback((points: string[]): [number, number][] => {
     if (!Array.isArray(points)) return [];
     
     return points
@@ -457,12 +406,69 @@ export default function Home() {
         // Handle both formats: ["lat,lng"] and ["lat,lng,1"]
         const [lat, lng] = point[0].split(',').map(parseFloat);
         if (!isNaN(lat) && !isNaN(lng)) {
-          return [lat, lng];
+          return [lat, lng] as [number, number];
         }
         return null;
       })
       .filter((point): point is [number, number] => point !== null);
-  };
+  }, []);
+
+  const fetchLineStops = useCallback(async (lineId: string) => {
+    try {
+      setIsLoadingLineStops(true);
+      const response = await fetch(`/api/bus-lines/stops?lineId=${lineId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch line stops');
+      }
+
+      const stops = await response.json();
+      setSelectedLineStops(stops);
+    } catch (error) {
+      console.error('Error fetching line stops:', error);
+      toast.error('Error', {
+        description: 'No se pudieron obtener las paradas de la línea'
+      });
+      setSelectedLineStops([]);
+    } finally {
+      setIsLoadingLineStops(false);
+    }
+  }, []);
+
+  const handleLineSelect = useCallback(async (lineId: string) => {
+    try {
+      setIsLoadingLineDetails(true);
+      setSelectedLineId(lineId);
+      
+      // Fetch both line details and stops
+      const [lineDetails] = await Promise.all([
+        fetchLineDetails(lineId),
+        fetchLineStops(lineId)
+      ]);
+
+      if (lineDetails) {
+        // Parse route points from either polilineaIda or polilinea
+        const route = parseRoutePoints(lineDetails.polilineaIda || lineDetails.polilinea);
+        console.log('🚌 Transformed route points:', route);
+
+        if (!route || route.length === 0) {
+          throw new Error('No valid route points found');
+        }
+
+        // Set the route
+        setSelectedLineRoute(route);
+      }
+    } catch (error) {
+      console.error('Error handling line selection:', error);
+      toast.error('Error', {
+        description: 'No se pudieron obtener los detalles de la línea'
+      });
+      setSelectedLineRoute(null);
+      setSelectedLineStops([]);
+    } finally {
+      setIsLoadingLineDetails(false);
+    }
+  }, [fetchLineDetails, fetchLineStops, parseRoutePoints]);
 
   const toggleLine = useCallback(async (lineId: string) => {
     try {
@@ -517,6 +523,7 @@ export default function Home() {
             onMapInit={(map) => {}} // Empty function since we don't need to do anything on init
             onLineSelect={handleLineSelect}
             selectedLineRoute={selectedLineRoute}
+            selectedLineStops={selectedLineStops}
           />
           {isUsingDefaultLocation && (
             <div className={styles.defaultLocationWarning}>
@@ -576,6 +583,32 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {selectedLineId && selectedLineStops.length > 0 && (
+            <div className="mt-6">
+              <div className={styles.lineStopsHeader}>
+                <h3>Paradas de la Línea</h3>
+                <span className={styles.lineStopsCount}>
+                  {selectedLineStops.length} paradas
+                </span>
+              </div>
+              
+              {isLoadingLineStops ? (
+                <div className={styles.loading}>
+                  <span>Cargando paradas de la línea...</span>
+                </div>
+              ) : (
+                <div className={styles.lineStopsList}>
+                  {selectedLineStops.map((stop, index) => (
+                    <div key={stop.id} className={styles.lineStopItem}>
+                      <span className={styles.lineStopNumber}>{index + 1}</span>
+                      <span className={styles.lineStopName}>{stop.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <Toaster />
