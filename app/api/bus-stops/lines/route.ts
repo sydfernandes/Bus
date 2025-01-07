@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server';
 import { API_CONFIG, ENDPOINTS } from '@/config/api';
-import { getCachedData, setCachedData } from '@/lib/cache';
 
-interface BusLine {
-  id: string;
-  name: string;
-  shortName: string;
-  code: string;
-  description: string;
-  originStop: string;
-  destinationStop: string;
-}
+export const dynamic = 'force-static';
 
 export async function GET(request: Request) {
   try {
@@ -18,23 +9,11 @@ export async function GET(request: Request) {
     const stopId = searchParams.get('stopId');
 
     if (!stopId) {
-      console.error('❌ Missing stop ID');
-      return NextResponse.json(
-        { error: 'Se requiere el ID de la parada' },
-        { status: 400 }
-      );
-    }
-
-    // Try to get data from cache
-    const cacheKey = `bus_lines_${stopId}`;
-    const cachedData = getCachedData<BusLine[]>(cacheKey);
-    if (cachedData) {
-      console.log('🎯 Returning cached bus lines data for stop:', stopId);
-      return NextResponse.json(cachedData);
+      return NextResponse.json({ error: 'Stop ID is required' }, { status: 400 });
     }
 
     const url = ENDPOINTS.BUS_STOP_LINES(stopId);
-    console.log('🚌 Fetching bus lines URL:', url);
+    console.log('🚌 Fetching bus stop lines URL:', url);
 
     const response = await fetch(url, {
       headers: {
@@ -55,7 +34,7 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
-    console.log('🚌 Raw bus lines data:', data);
+    console.log('🚌 Raw bus stop lines data:', data);
 
     if (!data.lineas || !Array.isArray(data.lineas)) {
       console.error('❌ Unexpected data format:', data);
@@ -73,15 +52,11 @@ export async function GET(request: Request) {
       destinationStop: line.cabeceraVuelta
     }));
 
-    // Cache the mapped data
-    setCachedData(cacheKey, lines);
-    console.log('💾 Cached bus lines data for stop:', stopId);
-
     return NextResponse.json(lines);
   } catch (error) {
     console.error('❌ Error in GET /api/bus-stops/lines:', error);
     return NextResponse.json(
-      { error: 'No se pudieron obtener las líneas' },
+      { error: 'Failed to fetch bus stop lines' },
       { status: 500 }
     );
   }

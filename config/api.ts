@@ -18,9 +18,13 @@ export const API_CONFIG = {
 } as const;
 
 export const ENDPOINTS = {
-  BUS_STOPS: (lat: number, long: number) => 
-    `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas?latitud=${lat}&longitud=${long}&lang=${API_CONFIG.CTAN.Lang}`,
+  BUS_STOPS: `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas?lang=${API_CONFIG.CTAN.Lang}`,
+  
+  BUS_LINES: `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/lineas?lang=${API_CONFIG.CTAN.Lang}`,
+  
+  BUS_LINE_STOPS: (lineId: string | number) =>
+    `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/lineas/${lineId}/paradas?lang=${API_CONFIG.CTAN.Lang}`,
   
   BUS_STOP_LINES: (stopId: string | number) =>
-    `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas/lineasPorParadas/${stopId}?lang=${API_CONFIG.CTAN.Lang}`,
+    `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas/${stopId}/lineas?lang=${API_CONFIG.CTAN.Lang}`,
 } as const;

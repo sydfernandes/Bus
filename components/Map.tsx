@@ -59,7 +59,7 @@ interface MapProps {
   onStopSelect: (stop: BusStop) => void;
   onMapInit: (map: L.Map) => void;
   onLineSelect: (lineId: string) => void;
-  selectedLineRoute: L.LatLng[] | null;
+  selectedLineRoute: [number, number][] | null;
   selectedLineStops: BusStop[];
 }
 
@@ -80,18 +80,18 @@ const MapUpdater = memo(({
   return null;
 });
 
-const BusStopMarker = memo(({ 
-  stop, 
-  isSelected, 
-  onClick,
-  onLineSelect
-}: { 
-  stop: BusStop; 
-  isSelected: boolean; 
-  onClick: () => void;
+const BusStopMarker = memo(({
+  stop,
+  isSelected,
+  onStopSelect,
+  onLineSelect,
+}: {
+  stop: BusStop;
+  isSelected: boolean;
+  onStopSelect: (stop: BusStop) => void;
   onLineSelect: (lineId: string) => void;
 }) => {
-  const position: [number, number] = [parseFloat(stop.latitude), parseFloat(stop.longitude)];
+  const position: [number, number] = [Number(stop.latitude), Number(stop.longitude)];
   
   const getLineNumber = (nombre: string) => {
     return nombre.split(' ')[0];
@@ -102,7 +102,7 @@ const BusStopMarker = memo(({
       position={position}
       icon={isSelected ? selectedBusStopIcon : busStopIcon}
       eventHandlers={{
-        click: onClick,
+        click: () => onStopSelect(stop),
       }}
     >
       <Popup>
@@ -138,60 +138,76 @@ const BusStopMarker = memo(({
 
 BusStopMarker.displayName = 'BusStopMarker';
 
-const Map = memo(({ 
-  center, 
-  zoom = 15, 
-  busStops, 
+// Component to handle bounds updates
+const BoundsUpdater = memo(({ 
+  selectedLineRoute, 
+  selectedLineStops 
+}: { 
+  selectedLineRoute: [number, number][] | null;
+  selectedLineStops: BusStop[];
+}) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (selectedLineRoute?.length || selectedLineStops.length) {
+      const bounds = L.latLngBounds([]);
+      
+      // Add route points to bounds
+      if (selectedLineRoute) {
+        selectedLineRoute.forEach(point => {
+          bounds.extend(point);
+        });
+      }
+      
+      // Add stops to bounds
+      selectedLineStops.forEach(stop => {
+        bounds.extend([Number(stop.latitude), Number(stop.longitude)]);
+      });
+      
+      // Fit bounds with padding
+      map.fitBounds(bounds, {
+        padding: [50, 50],
+        maxZoom: 15
+      });
+    }
+  }, [map, selectedLineRoute, selectedLineStops]);
+
+  return null;
+});
+
+BoundsUpdater.displayName = 'BoundsUpdater';
+
+const Map = memo(({
+  center,
+  zoom = 13,
+  busStops,
   selectedStop,
   onStopSelect,
   onMapInit,
   onLineSelect,
   selectedLineRoute,
-  selectedLineStops
+  selectedLineStops,
 }: MapProps) => {
   const mapRef = useRef<L.Map | null>(null);
-  
-  const whenCreated = useCallback((map: L.Map) => {
-    mapRef.current = map;
-    onMapInit?.(map);
-  }, [onMapInit]);
 
-  // Update bounds when line route or stops change
-  useEffect(() => {
-    if (mapRef.current && (selectedLineRoute?.length || selectedLineStops.length)) {
-      const bounds = L.latLngBounds([]);
-      
-      // Add route points to bounds
-      if (selectedLineRoute?.length) {
-        selectedLineRoute.forEach(point => bounds.extend(point));
-      }
-      
-      // Add line stops to bounds
-      if (selectedLineStops.length) {
-        selectedLineStops.forEach(stop => {
-          bounds.extend([stop.latitude, stop.longitude]);
-        });
-      }
-      
-      // Fit bounds with padding
-      mapRef.current.fitBounds(bounds, {
-        padding: [50, 50],
-        maxZoom: 15
-      });
+  const handleMapReady = useCallback(() => {
+    if (mapRef.current) {
+      onMapInit(mapRef.current);
     }
-  }, [selectedLineRoute, selectedLineStops]);
+  }, [onMapInit]);
 
   return (
     <div className={styles.mapContainer}>
       <MapContainer
         center={center}
         zoom={zoom}
-        whenCreated={whenCreated}
+        ref={mapRef}
+        whenReady={handleMapReady}
         className={styles.map}
       >
         <TileLayer
-          url={API_CONFIG.MAP.TILE_LAYER}
-          attribution={API_CONFIG.MAP.ATTRIBUTION}
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
         <MapUpdater center={center} zoom={zoom} />
         {busStops.map((stop) => (
@@ -199,38 +215,34 @@ const Map = memo(({
             key={stop.id}
             stop={stop}
             isSelected={selectedStop?.id === stop.id}
-            onClick={() => onStopSelect(stop)}
+            onStopSelect={() => onStopSelect(stop)}
             onLineSelect={onLineSelect}
           />
         ))}
-        {selectedLineRoute && selectedLineRoute.length > 0 && (
+        {selectedLineRoute && (
           <Polyline
             positions={selectedLineRoute}
-            pathOptions={{
-              color: '#2563eb',
-              weight: 5,
-              opacity: 0.9,
-              smoothFactor: 1,
-              lineCap: 'round',
-              lineJoin: 'round'
-            }}
+            pathOptions={{ color: 'blue', weight: 3 }}
           />
         )}
         {selectedLineStops.map((stop, index) => (
           <Marker
-            key={`line-${stop.id}`}
-            position={[stop.latitude, stop.longitude]}
-            icon={lineStopIcon}
+            key={`selected-${stop.id}-${index}`}
+            position={[Number(stop.latitude), Number(stop.longitude)]}
+            icon={selectedBusStopIcon}
           >
             <Popup>
-              <div className={styles.popup}>
-                <strong>Parada {index + 1}</strong>
+              <div className={styles.stopPopup}>
                 <h3>{stop.name}</h3>
-                <p>{stop.municipality}</p>
+                <p>Stop #{index + 1}</p>
               </div>
             </Popup>
           </Marker>
         ))}
+        <BoundsUpdater
+          selectedLineRoute={selectedLineRoute}
+          selectedLineStops={selectedLineStops}
+        />
         <Marker position={center} icon={userIcon}>
           <Popup>Tu ubicación</Popup>
         </Marker>
@@ -238,5 +250,7 @@ const Map = memo(({
     </div>
   );
 });
+
+Map.displayName = 'Map';
 
 export default Map;
