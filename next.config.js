@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
+  // Remove output: 'export' to enable API routes
   basePath: process.env.NODE_ENV === 'production' ? '/Bus' : '',
   images: {
     unoptimized: true,

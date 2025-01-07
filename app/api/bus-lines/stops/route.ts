@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { API_CONFIG, ENDPOINTS } from '@/config/api';
 
-export const dynamic = 'force-static';
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -19,6 +17,9 @@ export async function GET(request: Request) {
       headers: {
         'Accept': 'application/json',
         'Accept-Language': API_CONFIG.CTAN.Lang
+      },
+      next: {
+        revalidate: 3600 // Revalidate every hour
       }
     });
 
@@ -30,7 +31,10 @@ export async function GET(request: Request) {
         url: response.url,
         error: errorText
       });
-      throw new Error(`CTAN API error: ${response.status} - ${errorText}`);
+      return NextResponse.json(
+        { error: `CTAN API error: ${response.status}` },
+        { status: response.status }
+      );
     }
 
     const data = await response.json();
@@ -38,7 +42,10 @@ export async function GET(request: Request) {
 
     if (!data.paradas || !Array.isArray(data.paradas)) {
       console.error('❌ Unexpected data format:', data);
-      throw new Error('Unexpected data format from CTAN API');
+      return NextResponse.json(
+        { error: 'Unexpected data format from CTAN API' },
+        { status: 500 }
+      );
     }
 
     // Map the stops data
@@ -53,7 +60,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(stops);
   } catch (error) {
-    console.error('❌ Error in GET /api/bus-lines/stops:', error);
+    console.error('❌ Error fetching bus line stops:', error);
     return NextResponse.json(
       { error: 'Failed to fetch bus line stops' },
       { status: 500 }
