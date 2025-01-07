@@ -5,9 +5,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  distDir: 'dist',
+  assetPrefix: '/Bus/',
   trailingSlash: true,
-  assetPrefix: '/Bus/'
+  distDir: 'out'
 }
 
 module.exports = nextConfig
