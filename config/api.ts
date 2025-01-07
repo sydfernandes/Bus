@@ -1,11 +1,9 @@
 import { Languages } from "lucide-react";
 
 export const API_CONFIG = {
-  CTAN: {
-    BaseUrl: 'https://api.ctan.es/v1',
-    Consortium: '1',
-    Lang: 'ES',
-  },
+  BASE_URL: 'https://api.ctan.es/v1',
+  CONSORTIUM: '1',
+  LANG: 'ES',
   MAP: {
     TILE_LAYER: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     ATTRIBUTION: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -18,9 +16,10 @@ export const API_CONFIG = {
 } as const;
 
 export const ENDPOINTS = {
-  BUS_STOPS: (lat: number, long: number) => 
-    `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas?latitud=${lat}&longitud=${long}&lang=${API_CONFIG.CTAN.Lang}`,
-  
+  BUS_STOPS: (lat: number, long: number, maxdist: number = 500) => 
+    `/Consorcios/${API_CONFIG.CONSORTIUM}/paradas?lat=${lat}&long=${long}&maxdist=${maxdist}&lang=${API_CONFIG.LANG}`,
   BUS_STOP_LINES: (stopId: string | number) =>
-    `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas/lineasPorParadas/${stopId}?lang=${API_CONFIG.CTAN.Lang}`,
+    `/Consorcios/${API_CONFIG.CONSORTIUM}/paradas/lineasPorParadas/${stopId}?lang=${API_CONFIG.LANG}`,
+  BUS_LINE_DETAILS: (lineId: string | number) =>
+    `/Consorcios/${API_CONFIG.CONSORTIUM}/lineas/${lineId}?lang=${API_CONFIG.LANG}`,
 } as const;

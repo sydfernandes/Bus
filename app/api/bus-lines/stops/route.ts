@@ -1,67 +1,94 @@
-import { API_CONFIG } from '@/config/api';
-import { NextRequest, NextResponse } from 'next/server';
-import { BusStop } from '@/types/bus';
+import { NextResponse, NextRequest } from 'next/server';
+import { API_CONFIG, ENDPOINTS } from '@/config/api';
 import { getCachedData, setCachedData } from '@/lib/cache';
+import type { BusStop } from '@/types/bus';
+
+interface CTANBusLineStop {
+  idParada: number;
+  orden: number;
+  idLinea: number;
+  codigoLinea: string;
+  nombreLinea: string;
+  descripcionLinea: string;
+  prioridad: number;
+  idNucleo: number;
+  idZona: number;
+  nombre: string;
+  latitud: number;
+  longitud: number;
+  modos: string;
+  idMunicipio: number;
+  municipio: string;
+  nucleo: string;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const lineId = searchParams.get('lineId');
+    const lineId = request.nextUrl.searchParams.get('lineId');
 
     if (!lineId) {
-      return NextResponse.json(
-        { error: 'Line ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Line ID is required' }, { status: 400 });
     }
 
-    // Try to get data from cache
-    const cacheKey = `bus_line_stops_${lineId}`;
-    const cachedData = getCachedData<BusStop[]>(cacheKey);
+    const cacheKey = `line-stops-${lineId}`;
+    const cachedData = getCachedData(cacheKey);
+
     if (cachedData) {
-      console.log('🎯 Returning cached line stops for line:', lineId);
       return NextResponse.json(cachedData);
     }
 
-    const url = `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/lineas/${lineId}/paradas?lang=${API_CONFIG.CTAN.Lang}`;
-    console.log('🚌 Fetching line stops URL:', url);
-    
-    const response = await fetch(url);
-    
+    const response = await fetch(`${API_CONFIG.BASE_URL}${ENDPOINTS.BUS_LINE_DETAILS(lineId)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
     if (!response.ok) {
-      throw new Error(`Error from CTAN API: ${response.status}`);
+      throw new Error(`Failed to fetch line stops: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
-    console.log('🚌 Line stops data:', data);
 
-    // Map the stops data
-    const stops = data.paradas?.map((stop: any) => ({
+    if (!Array.isArray(data?.paradas)) {
+      throw new Error('Invalid response format from CTAN API');
+    }
+
+    interface CTANBusLineStop {
+      idParada: number;
+      nombre: string;
+      latitud: number;
+      longitud: number;
+      municipio: string;
+      nucleo: string;
+      modos: string;
+      orden: number;
+    }
+
+    const stops: (BusStop & { order: number })[] = data.paradas.map((stop: CTANBusLineStop) => ({
       id: stop.idParada,
       name: stop.nombre,
       latitude: stop.latitud,
       longitude: stop.longitud,
-      nucleusId: stop.idNucleo,
-      zoneId: stop.idZona,
-      transportModes: stop.modos,
-      municipalityId: stop.idMunicipio,
       municipality: stop.municipio,
       nucleus: stop.nucleo,
-      order: stop.orden // Add order field for proper stop sequence
-    })) || [];
+      transportModes: stop.modos,
+      number: '',
+      distance: 0,
+      lines: [],
+      order: stop.orden
+    }));
 
     // Sort stops by order
     const sortedStops = stops.sort((a, b) => a.order - b.order);
 
-    // Cache the data
+    // Cache the sorted stops
     setCachedData(cacheKey, sortedStops);
-    console.log('💾 Cached line stops for line:', lineId);
 
     return NextResponse.json(sortedStops);
   } catch (error) {
     console.error('Error fetching line stops:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch line stops' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch line stops' },
       { status: 500 }
     );
   }

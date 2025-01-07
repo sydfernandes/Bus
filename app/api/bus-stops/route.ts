@@ -1,66 +1,83 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import { DEFAULT_COORDINATES } from '@/lib/constants';
 import { API_CONFIG, ENDPOINTS } from '@/config/api';
-import { BusStop, CTANBusStop } from '@/types/bus';
-import { getCachedData, setCachedData } from '@/lib/cache';
+import type { BusStop } from '@/types/bus';
 
-export async function GET(request: Request) {
+interface CTANBusStop {
+  idParada: number;
+  nombre: string;
+  latitud: number;
+  longitud: number;
+  municipio: string;
+  nucleo: string;
+  modos: string[];
+  numero?: string;
+  distancia: number;
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const lat = searchParams.get('lat');
-    const long = searchParams.get('long');
+    const { searchParams } = request.nextUrl;
+    const latitude = searchParams.get('latitude');
+    const longitude = searchParams.get('longitude');
+    const radius = searchParams.get('radius') || '500';
 
-    if (!lat || !long) {
-      return NextResponse.json(
-        { error: 'Latitude and longitude are required' },
-        { status: 400 }
-      );
-    }
+    const lat = parseFloat(latitude || DEFAULT_COORDINATES[0].toString());
+    const long = parseFloat(longitude || DEFAULT_COORDINATES[1].toString());
+    const maxdist = parseInt(radius);
 
-    // Create a cache key based on coordinates (rounded to 4 decimal places for better cache hits)
-    const cacheKey = `bus_stops_${Number(lat).toFixed(4)}_${Number(long).toFixed(4)}`;
-    
-    // Try to get data from cache
-    const cachedData = getCachedData<BusStop[]>(cacheKey);
-    if (cachedData) {
-      console.log('🎯 Returning cached bus stops data');
-      return NextResponse.json(cachedData);
-    }
+    const url = `${API_CONFIG.BASE_URL}${ENDPOINTS.BUS_STOPS(lat, long, maxdist)}`;
+    console.log('🚌 Fetching bus stops from URL:', url);
 
-    const url = ENDPOINTS.BUS_STOPS(Number(lat), Number(long));
-    console.log('🚌 Fetching bus stops from CTAN:', url);
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      next: { revalidate: 60 }, // Cache for 1 minute
+    });
 
-    const response = await fetch(url);
-    
     if (!response.ok) {
-      throw new Error(`Error from CTAN API: ${response.status}`);
+      const errorText = await response.text();
+      console.error('❌ CTAN API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        error: errorText
+      });
+      throw new Error(`Failed to fetch bus stops: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('🚌 Bus stops data from CTAN:', data);
+    console.log('🚌 Raw bus stops data:', data);
+    
+    if (!Array.isArray(data?.paradas)) {
+      console.error('❌ Invalid data format:', data);
+      throw new Error('Invalid response format from CTAN API');
+    }
 
-    // Map the stops data from CTAN format
-    const mappedStops = data.paradas?.map((stop: CTANBusStop) => ({
+    const stops: BusStop[] = data.paradas.map((stop: CTANBusStop) => ({
       id: stop.idParada,
       name: stop.nombre,
       latitude: stop.latitud,
       longitude: stop.longitud,
-      nucleusId: stop.idNucleo,
-      zoneId: stop.idZona,
-      transportModes: stop.modos,
-      municipalityId: stop.idMunicipio,
       municipality: stop.municipio,
-      nucleus: stop.nucleo
-    })) || [];
+      nucleus: stop.nucleo,
+      transportModes: Array.isArray(stop.modos) ? stop.modos.join(', ') : stop.modos,
+      number: stop.numero || '',
+      distance: stop.distancia,
+      lines: [],
+    }));
 
-    // Cache the mapped data
-    setCachedData(cacheKey, mappedStops);
-    console.log('💾 Cached bus stops data for key:', cacheKey);
+    // Sort by distance
+    const sortedStops = stops.sort((a, b) => a.distance - b.distance);
+    console.log(`🚌 Found ${sortedStops.length} bus stops`);
 
-    return NextResponse.json(mappedStops);
+    return NextResponse.json(sortedStops);
   } catch (error) {
     console.error('Error fetching bus stops:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch bus stops' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch bus stops' },
       { status: 500 }
     );
   }

@@ -1,50 +1,60 @@
-import { API_CONFIG } from '@/config/api';
-import { NextRequest, NextResponse } from 'next/server';
-import { BusLine } from '@/types/bus';
+import { API_CONFIG, ENDPOINTS } from '@/config/api';
+import { NextResponse, NextRequest } from 'next/server';
+import type { BusLine } from '@/types/bus';
 import { getCachedData, setCachedData } from '@/lib/cache';
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const stopId = searchParams.get('stopId');
+    const lineId = request.nextUrl.searchParams.get('lineId');
 
-    if (!stopId) {
+    if (!lineId) {
       return NextResponse.json(
-        { error: 'Stop ID is required' },
+        { error: 'Line ID is required' },
         { status: 400 }
       );
     }
 
     // Try to get data from cache
-    const cacheKey = `bus_lines_${stopId}`;
+    const cacheKey = `bus_lines_${lineId}`;
     const cachedData = getCachedData<BusLine[]>(cacheKey);
     if (cachedData) {
-      console.log('🎯 Returning cached lines for stop:', stopId);
+      console.log('🎯 Returning cached lines for line:', lineId);
       return NextResponse.json(cachedData);
     }
 
-    const url = `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas/lineasPorParadas/${stopId}?lang=${API_CONFIG.CTAN.Lang}`;
-    console.log('🚌 Fetching lines URL:', url);
-    
-    const response = await fetch(url);
-    
+    const response = await fetch(`${API_CONFIG.BASE_URL}${ENDPOINTS.BUS_STOP_LINES(lineId)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
     if (!response.ok) {
-      throw new Error(`Error from CTAN API: ${response.status}`);
+      throw new Error(`Failed to fetch bus lines: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
-    console.log('🚌 Lines data:', data);
+    
+    if (!Array.isArray(data)) {
+      throw new Error('Invalid response format from CTAN API');
+    }
+
+    const lines: BusLine[] = data.map((line: any) => ({
+      idLinea: line.idLinea,
+      codigo: line.codigo,
+      nombre: line.nombre,
+      descripcion: line.descripcion,
+      prioridad: line.prioridad,
+    }));
 
     // Cache the data
-    setCachedData(cacheKey, data);
-    console.log('💾 Cached lines for stop:', stopId);
+    setCachedData(cacheKey, lines);
+    console.log('💾 Cached lines for line:', lineId);
 
-    // Validate and return the data as is since it matches our BusLine interface
-    return NextResponse.json(data as BusLine[]);
+    return NextResponse.json(lines);
   } catch (error) {
     console.error('Error fetching bus lines:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch bus lines' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch bus lines' },
       { status: 500 }
     );
   }

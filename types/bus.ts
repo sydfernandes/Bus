@@ -1,9 +1,9 @@
 export interface BusLine {
-  idLinea: number;    // Identificador de la linea
-  codigo: string;     // Codigo de la linea
-  nombre: string;     // Nombre de la linea
-  descripcion: string; // Nombre del modo de transporte
-  prioridad: number;  // Número de servicios de la línea
+  idLinea: number;    // Line identifier
+  codigo: string;     // Line code
+  nombre: string;     // Line name
+  descripcion: string; // Transport mode name
+  prioridad: number;  // Number of services on the line
 }
 
 export interface BusStop {
@@ -11,27 +11,19 @@ export interface BusStop {
   name: string;
   latitude: number;
   longitude: number;
-  description?: string;
-  distance?: number;
-  lines?: BusLine[];
-  // Additional CTAN API fields
-  nucleusId: number;
-  zoneId: number;
-  transportModes: string;
-  municipalityId: number;
+  distance: number;  // Distance in meters from user location
   municipality: string;
   nucleus: string;
+  transportModes: string;
+  number: string;
+  lines: BusLine[];
 }
 
-export interface CTANBusStop {
-  idParada: number;
-  idNucleo: number;
-  idZona: number;
-  nombre: string;
-  latitud: number;
-  longitud: number;
-  modos: string;
-  idMunicipio: number;
-  municipio: string;
-  nucleo: string;
+export interface LineDetails {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  route: [number, number][];
+  stops: BusStop[];
 }
