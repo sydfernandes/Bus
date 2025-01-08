@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Toggle } from '@/components/ui/toggle';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
@@ -21,21 +22,32 @@ const BusStopItem = memo(({
   onSelect, 
   expandedLines, 
   onToggleLine,
-  isLoading
+  isLoading,
+  selectedLineId
 }: { 
   stop: any; 
   isSelected: boolean; 
   onSelect: () => void;
   expandedLines: Set<string>;
-  onToggleLine: (lineId: string) => void;
+  onToggleLine: (lineId: string, stopId: number) => void;
   isLoading: boolean;
+  selectedLineId: string | null;
 }) => {
+  const stopRef = useRef<HTMLDivElement>(null);
   const getLineNumber = (nombre: string) => {
     return nombre.split(' ')[0];
   };
 
+  // Scroll into view when this stop contains the selected line
+  useEffect(() => {
+    if (selectedLineId && stop.lines?.some((line: any) => String(line.idLinea) === selectedLineId)) {
+      stopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [selectedLineId, stop.lines]);
+
   return (
     <div 
+      ref={stopRef}
       className={`${styles.stopItem} ${isSelected ? styles.selected : ''}`}
       onClick={onSelect}
     >
@@ -53,31 +65,19 @@ const BusStopItem = memo(({
               <span>Cargando líneas...</span>
             </div>
           ) : stop.lines?.length ? (
-            stop.lines.map((line: any) => (
-              <div 
-                key={line.idLinea}
-                className={styles.line}
-                data-expanded={expandedLines.has(String(line.idLinea))}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleLine(String(line.idLinea));
-                }}
-              >
-                <div className={styles.lineHeader}>
-                  <span className={styles.lineName}>
-                    {getLineNumber(line.nombre)}
-                  </span>
-                  <span className={styles.lineType}>
-                    {line.descripcion}
-                  </span>
-                </div>
-                {expandedLines.has(String(line.idLinea)) && (
-                  <div className={styles.lineInfo}>
-                    <p>{line.nombre}</p>
-                  </div>
-                )}
-              </div>
-            ))
+            <div className={styles.lineGrid}>
+              {stop.lines.map((line: any) => (
+                <Toggle
+                  key={line.idLinea}
+                  size="sm"
+                  pressed={selectedLineId === String(line.idLinea)}
+                  onPressedChange={() => onToggleLine(String(line.idLinea), stop.id)}
+                  aria-label={`Toggle line ${getLineNumber(line.nombre)}`}
+                >
+                  {getLineNumber(line.nombre)}
+                </Toggle>
+              ))}
+            </div>
           ) : (
             <div className={styles.noLines}>
               <span>No hay líneas disponibles</span>
@@ -423,7 +423,37 @@ export default function Home() {
       }
 
       const stops = await response.json();
-      setSelectedLineStops(stops);
+      
+      // Fetch lines for each stop if not already in cache
+      const stopsWithLines = await Promise.all(stops.map(async (stop: any) => {
+        if (linesCache[stop.id]) {
+          return { ...stop, lines: linesCache[stop.id] };
+        }
+
+        try {
+          const url = `${API_CONFIG.CTAN.BaseUrl}/Consorcios/${API_CONFIG.CTAN.Consortium}/paradas/lineasPorParadas/${stop.id}?lang=${API_CONFIG.CTAN.Lang}`;
+          const response = await fetch(url);
+          
+          if (!response.ok) {
+            throw new Error(`Error fetching bus lines: ${response.status}`);
+          }
+
+          const lines = await response.json();
+          
+          // Save to cache
+          setLinesCache(prev => ({
+            ...prev,
+            [stop.id]: lines
+          }));
+
+          return { ...stop, lines };
+        } catch (error) {
+          console.error(`Error fetching lines for stop ${stop.id}:`, error);
+          return { ...stop, lines: [] };
+        }
+      }));
+
+      setSelectedLineStops(stopsWithLines);
     } catch (error) {
       console.error('Error fetching line stops:', error);
       toast.error('Error', {
@@ -433,7 +463,7 @@ export default function Home() {
     } finally {
       setIsLoadingLineStops(false);
     }
-  }, []);
+  }, [linesCache]);
 
   const handleLineSelect = useCallback(async (lineId: string) => {
     try {
@@ -470,28 +500,35 @@ export default function Home() {
     }
   }, [fetchLineDetails, fetchLineStops, parseRoutePoints]);
 
-  const toggleLine = useCallback(async (lineId: string) => {
-    try {
+  const toggleLine = useCallback(async (lineId: string, stopId: number) => {
+    // If the line is already selected, deselect it
+    if (selectedLineId === lineId) {
+      setSelectedLineId(null);
+      setSelectedLineRoute(null);
+      setSelectedLineStops([]);
       setExpandedLines(prev => {
         const newSet = new Set(prev);
-        if (newSet.has(lineId)) {
-          newSet.delete(lineId);
-          setSelectedLineId(null);
-        } else {
-          newSet.add(lineId);
-          setSelectedLineId(lineId);
-          // Fetch line details when expanding
-          fetchLineDetails(lineId);
-        }
+        newSet.delete(lineId);
         return newSet;
       });
-    } catch (error) {
-      console.error('❌ Error:', error);
-      toast.error('Error', {
-        description: 'No se pudieron obtener los detalles de la línea'
+    } else {
+      // Select the new line
+      setExpandedLines(prev => {
+        const newSet = new Set(prev);
+        newSet.add(lineId);
+        return newSet;
       });
+      // Find and select the stop if it's not already selected
+      if (!selectedStop || selectedStop.id !== stopId) {
+        const stop = busStops.find(s => s.id === stopId);
+        if (stop) {
+          await handleStopSelect(stop);
+        }
+      }
+      // Use the same line selection logic as the map
+      handleLineSelect(lineId);
     }
-  }, [fetchLineDetails]);
+  }, [selectedLineId, handleLineSelect, busStops, selectedStop, handleStopSelect]);
 
   console.log('Current state:', {
     userLocation,
@@ -524,6 +561,7 @@ export default function Home() {
             onLineSelect={handleLineSelect}
             selectedLineRoute={selectedLineRoute}
             selectedLineStops={selectedLineStops}
+            selectedLineId={selectedLineId}
           />
           {isUsingDefaultLocation && (
             <div className={styles.defaultLocationWarning}>
@@ -573,11 +611,12 @@ export default function Home() {
                   <BusStopItem 
                     key={stop.id} 
                     stop={stop} 
-                    isSelected={selectedStop?.id === stop.id} 
+                    isSelected={selectedStop?.id === stop.id || stop.lines?.some((line: any) => String(line.idLinea) === selectedLineId)} 
                     onSelect={() => handleStopSelect(stop)} 
                     expandedLines={expandedLines} 
                     onToggleLine={toggleLine} 
                     isLoading={isLoadingLines}
+                    selectedLineId={selectedLineId}
                   />
                 ))}
               </div>

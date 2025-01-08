@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-
 import L from 'leaflet';
 import { API_CONFIG } from '../config/api';
 import { formatDistance } from '../lib/format';
+import { Toggle } from '@/components/ui/toggle';
 import styles from './Map.module.css';
 import 'leaflet/dist/leaflet.css';
 
@@ -12,6 +13,11 @@ L.Marker.prototype.options.icon = L.icon({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
+
+// Helper function to get line number
+const getLineNumber = (nombre: string) => {
+  return nombre.split(' ')[0];
+};
 
 // Custom marker icons
 const userIcon = L.divIcon({
@@ -61,6 +67,7 @@ interface MapProps {
   onLineSelect: (lineId: string) => void;
   selectedLineRoute: [number, number][] | null;
   selectedLineStops: BusStop[];
+  selectedLineId: string | null;
 }
 
 // Component to handle map center updates
@@ -85,17 +92,15 @@ const BusStopMarker = memo(({
   isSelected,
   onStopSelect,
   onLineSelect,
+  selectedLineId,
 }: {
   stop: BusStop;
   isSelected: boolean;
   onStopSelect: (stop: BusStop) => void;
   onLineSelect: (lineId: string) => void;
+  selectedLineId: string | null;
 }) => {
   const position: [number, number] = [Number(stop.latitude), Number(stop.longitude)];
-  
-  const getLineNumber = (nombre: string) => {
-    return nombre.split(' ')[0];
-  };
   
   return (
     <Marker
@@ -113,16 +118,15 @@ const BusStopMarker = memo(({
               {Array.isArray(stop.lines) ? (
                 <div className={styles.lineGrid}>
                   {stop.lines.map((line: any) => (
-                    <button
+                    <Toggle
                       key={line.idLinea}
-                      className={styles.lineButton}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onLineSelect(line.idLinea);
-                      }}
+                      size="sm"
+                      pressed={selectedLineId === String(line.idLinea)}
+                      onPressedChange={() => onLineSelect(line.idLinea)}
+                      aria-label={`Toggle line ${getLineNumber(line.nombre)}`}
                     >
                       {getLineNumber(line.nombre)}
-                    </button>
+                    </Toggle>
                   ))}
                 </div>
               ) : (
@@ -187,6 +191,7 @@ const Map = memo(({
   onLineSelect,
   selectedLineRoute,
   selectedLineStops,
+  selectedLineId,
 }: MapProps) => {
   const mapRef = useRef<L.Map | null>(null);
 
@@ -201,15 +206,23 @@ const Map = memo(({
       <MapContainer
         center={center}
         zoom={zoom}
+        className={styles.map}
         ref={mapRef}
         whenReady={handleMapReady}
-        className={styles.map}
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapUpdater center={center} zoom={zoom} />
+        <BoundsUpdater selectedLineRoute={selectedLineRoute} selectedLineStops={selectedLineStops} />
+        
+        {/* User location marker */}
+        <Marker position={center} icon={userIcon}>
+          <Popup>Tu ubicación</Popup>
+        </Marker>
+
+        {/* Bus stops markers */}
         {busStops.map((stop) => (
           <BusStopMarker
             key={stop.id}
@@ -217,35 +230,53 @@ const Map = memo(({
             isSelected={selectedStop?.id === stop.id}
             onStopSelect={() => onStopSelect(stop)}
             onLineSelect={onLineSelect}
+            selectedLineId={selectedLineId}
           />
         ))}
-        {selectedLineRoute && (
-          <Polyline
-            positions={selectedLineRoute}
-            pathOptions={{ color: 'blue', weight: 3 }}
-          />
-        )}
-        {selectedLineStops.map((stop, index) => (
+
+        {/* Route line stops */}
+        {selectedLineStops.map((stop) => (
           <Marker
-            key={`selected-${stop.id}-${index}`}
+            key={stop.id}
             position={[Number(stop.latitude), Number(stop.longitude)]}
-            icon={selectedBusStopIcon}
+            icon={lineStopIcon}
           >
             <Popup>
               <div className={styles.stopPopup}>
                 <h3>{stop.name}</h3>
-                <p>Stop #{index + 1}</p>
+                {stop.lines ? (
+                  <div className={styles.lines}>
+                    {Array.isArray(stop.lines) ? (
+                      <div className={styles.lineGrid}>
+                        {stop.lines.map((line: any) => (
+                          <Toggle
+                            key={line.idLinea}
+                            size="sm"
+                            pressed={selectedLineId === String(line.idLinea)}
+                            onPressedChange={() => onLineSelect(line.idLinea)}
+                            aria-label={`Toggle line ${getLineNumber(line.nombre)}`}
+                          >
+                            {getLineNumber(line.nombre)}
+                          </Toggle>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>No hay líneas disponibles</p>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </Popup>
           </Marker>
         ))}
-        <BoundsUpdater
-          selectedLineRoute={selectedLineRoute}
-          selectedLineStops={selectedLineStops}
-        />
-        <Marker position={center} icon={userIcon}>
-          <Popup>Tu ubicación</Popup>
-        </Marker>
+
+        {/* Route polyline */}
+        {selectedLineRoute && (
+          <Polyline
+            positions={selectedLineRoute}
+            pathOptions={{ color: 'blue', weight: 4 }}
+          />
+        )}
       </MapContainer>
     </div>
   );
